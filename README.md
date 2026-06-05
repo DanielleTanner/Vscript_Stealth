@@ -15,3 +15,4 @@ The ascending waypoints should also follow a path, since the npc will always pat
 
 The waypoints themselves use the path_corner entity. All you need to do is name them properly, you don't have to do anything else with the entity.
 
+I'm not a programmer, so I am pretty sure this can be written better. But better it be bad and exists than it not existing at all.
