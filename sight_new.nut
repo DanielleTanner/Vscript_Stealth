@@ -79,19 +79,22 @@ local alertStage = AlertStage.Idle_Peaceful
 local actionState = ActionState.Idle_Patrol
 local patrolVar = PatrolVars.Walking
 local currentWayPointIndex = 0
-
 local staystill = 0
 local fst_move = false
-
 local squadManager = Squads
-
 local red = 0
 local green = 255
-
 local waypoints = []
 
-DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null)
-//DoEntFire("debug_" + self.GetName(), "SetParentAttachment", "eyes", 0, null, null) 
+local fst_contact = false
+local repatrol = false
+
+const maxCuriousCoolDown = 5
+local curiousCoolDown = 0
+const maxAlertCoolDown = 5
+local alertCoolDown = 0
+
+DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
 DoEntFire(self.GetName() + "weaponcock", "SetParent", self.GetName(), 0, null, null)
 DoEntFire(self.GetName() + "weaponcock", "SetParentAttachment", "eyes", 0, null, null)
 //spawns a sprite at the NPC's eyes. Research self.GetForwardVector to see how apply the position in respect to the NPC
@@ -104,13 +107,16 @@ self.ConnectOutput("OnDamagedByPlayer", "StealthKill")
 function NPC_TranslateActivity()
 {
     local newactivity = -1
-    
-    /// This code currently handles sound checking, as NPCs will run to check sounds
-    if(activity == "ACT_RUN" && self.GetNPCState() == NPC_STATE_IDLE)
+    if(activity == "ACT_RUN" && self.GetNPCState() == NPC_STATE_IDLE && alertStage == AlertStage.Idle_Seen)
     {
         newactivity = "ACT_WALK_AIM"
     }
-    
+    /// This code currently handles sound checking, as NPCs will run to check sounds
+    if(alertStage == AlertStage.Idle_Heard_World && activity == "ACT_RUN")
+    {
+        newactivity = "ACT_WALK_AIM"
+    }
+
     else if(alertStage == AlertStage.Idle_Seen && activity == "ACT_WALK") 
     {
         newactivity = "ACT_WALK_AIM"
@@ -120,6 +126,13 @@ function NPC_TranslateActivity()
     {
         newactivity = "ACT_IDLE_ANGRY"
     }
+
+    /*
+    else if(alertStage == AlertStage.Alert_Heard_Combat && activity == "ACT_WALK")
+    {
+        newactivity = "ACT_RUN"
+    }
+    */
     return newactivity
 }
 
@@ -215,8 +228,8 @@ function Think() // handles rising sight meter
     local distance = (player.EyePosition() - self.EyePosition()).Length()
 
     local dleft = (self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length()
-    //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "Distance: " + dleft, 0, null, null)
-    DoEntFire("debug_" + self.GetName(), "SetMessage", "WaitTime: " + waitTime + " & " + "Distance: " + dleft, 0, null, null)
+    DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "Alertcooldown: " + alertCoolDown, 0, null, null)
+    //DoEntFire("debug_" + self.GetName(), "SetMessage", "WaitTime: " + waitTime + " & " + "Distance: " + dleft, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "CuriousCD: " + curiousCoolDown + " Schedule: " + self.GetSchedule() + " & " + "State: " + self.GetNPCState(), 0, null, null)
 
     if(self.GetNPCState() == NPC_STATE_IDLE || self.GetNPCState() == NPC_STATE_ALERT) 
@@ -270,14 +283,6 @@ function QuerySeeEntity()
     }
 }
 
-local fst_contact = false
-local repatrol = false
-
-const maxCuriousCoolDown = 5
-local curiousCoolDown = 0
-const maxAlertCoolDown = 5
-local alertCoolDown = 0
-
 function _UpdateSightAlertState(distance)
 {
     switch(alertStage)
@@ -317,7 +322,32 @@ function _UpdateSightAlertState(distance)
             {
                 alertStage = AlertStage.Idle_Peaceful
             }
+            else if(alertlevel >= 0.5)
+            {
+                fst_contact = true
+                alertStage = AlertStage.Idle_Seen
+            }
         break
+
+        /*
+        case AlertStage.Alert_Heard_Combat:
+            
+            _UpdateSight(distance)
+            if(alertlevel >= 1)
+            {
+                alertStage = AlertStage.Combat_Seen
+            }
+            else if(alertlevel < 0.5 && self.GetSchedule() != "SCHED_INVESTIGATE_SOUND")
+            {
+                alertStage = AlertStage.Idle_Peaceful
+            }
+            else if(alertlevel >= 0.5)
+            {
+                fst_contact = true
+                alertStage = AlertStage.Alert_Seen
+            }
+        break
+        */
 
         case AlertStage.Alert_Seen:
             _UpdateSight(distance)
@@ -327,7 +357,7 @@ function _UpdateSightAlertState(distance)
             }
             if(alertlevel < 0.5 && alertCoolDown <= 0)
             {
-                alertStage = AlertStage.Idle_Seen
+                alertStage = AlertStage.Idle_Peaceful
             }
         break
 
@@ -341,7 +371,23 @@ function QueryHearSound()
 {
     if(sound.SoundType() & (SOUND_COMBAT))
     {
-        return false
+        alertStage = AlertStage.Combat_Seen
+        /*
+        repatrol = true
+        self.SetSchedule("SCHED_INVESTIGATE_SOUND")
+        */
+        _UpdateSchedule()
+    
+    }
+    if(sound.SoundType() & (SOUND_WORLD))
+    {
+        if(alertStage == AlertStage.Idle_Peaceful)
+        {
+            alertStage = AlertStage.Idle_Heard_World
+            repatrol = true
+            self.SetSchedule("SCHED_INVESTIGATE_SOUND")
+            _UpdateSchedule()
+        }
     }
     if(sound.SoundType() & (SOUND_PLAYER))
     {
@@ -362,7 +408,15 @@ function _UpdateSchedule()
         break
 
         case AlertStage.Idle_Heard_World:
+        actionState = ActionState.Idle_Approach_Heard_World
+        break
 
+        //case AlertStage.Alert_Heard_Combat:
+        //actionState = ActionState.Combat_Action
+        //break
+
+        case AlertStage.Alert_Seen:
+        actionState = ActionState.Alert_Approach_Seen
         break
 
         case AlertStage.Combat_Seen:
@@ -380,15 +434,13 @@ function _UpdateAction()
             if(repatrol)
             {
                 repatrol = false
-                local patrolpoint = Entities.FindByNameNearest(self.GetName() + "_wp*", self.GetOrigin(), 2048)
-                DoEntFire("!self","SetTarget",patrolpoint.GetName(),0,self,self)
+                DoEntFire("!self","SetTarget",waypoints[currentWayPointIndex].GetName(),0,self,self)
             }
             else
             {
                 if(patrolVar == PatrolVars.Walking)
                 {
-                    
-                    if((self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length() < 8) // in game this is apparently the distance between the npc and the node
+                    if((self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length() < 8) // in game this is the distance between the npc and the node when npc is on top of the node
                     {
                         patrolVar = PatrolVars.Waiting
                         waitTime = maxWaitTime
@@ -428,6 +480,7 @@ function _UpdateAction()
                 DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
                 playerpos.SetOrigin(player.GetOrigin())
                 self.ClearSchedule("SCHED_IDLE_WALK")
+                self.ClearSchedule("SCHED_INVESTIGATE_SOUND")
                 curiousCoolDown = maxCuriousCoolDown
                 fst_contact = false
                 fst_move = true
@@ -450,11 +503,21 @@ function _UpdateAction()
                     {
                         if(playerInView) // update player position and movement
                         {
-                            playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
+                            DoEntFire(self.GetName() + "aifollow", "Kill", "",0,self,self)
+                            local aifollow = SpawnEntityFromTable("ai_goal_follow"
+                            {
+                                actor = self.GetName()
+                                goal = self.GetName() + "playercornerpath"
+                                Formation = 0
+                                targetname = self.GetName() + "aifollow"
+                                StartActive = 0
+                            })
+                            DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+                            //playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
                             curiousCoolDown = maxCuriousCoolDown
                         }
                         
-                        if(self.GetActivity() == "ACT_IDLE")
+                        if(self.GetActivity() == "ACT_IDLE") // if npc is currently not moving, implying it has reached its destination
                         {
                             curiousCoolDown -= 7*FrameTime()
                         }
@@ -471,8 +534,79 @@ function _UpdateAction()
             }
         break
 
-        case ActionState.Combat_Action:
+        case ActionState.Alert_Approach_Seen:
+            local aifollow = SpawnEntityFromTable("ai_goal_follow"
+            {
+                actor = self.GetName()
+                goal = self.GetName() + "playercornerpath"
+                Formation = 0
+                targetname = self.GetName() + "aifollow"
+                StartActive = 0
+            })
 
+            local playerpos = SpawnEntityFromTable("path_corner",
+            {
+                origin = self.GetOrigin()
+                targetname = self.GetName() + "playercornerpath"
+            })
+
+            if(fst_contact) // fst_contact should be the setup
+            {
+                DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
+                playerpos.SetOrigin(player.GetOrigin())
+                self.ClearSchedule("SCHED_INVESTIGATE_SOUND")
+                alertCoolDown = maxAlertCoolDown
+                DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+                fst_contact = false
+            }
+            else
+            {
+                if(playerInView)
+                {
+                    playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
+                    alertCoolDown = maxAlertCoolDown
+                }
+                if(self.GetActivity() != "ACT_RUN") // if npc is currently not moving, implying it has reached its destination
+                {
+                    alertCoolDown -= 7*FrameTime()
+                }
+                if(alertCoolDown <= 0)
+                {
+                    repatrol = true
+                    DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
+                    DoEntFire(self.GetName() + "aifollow", "Kill", "",0,self,self)
+                    DoEntFire(self.GetName() + "playercornerpath", "Kill", "",0,self,self)
+                }
+            }
+        break
+
+        case ActionState.Idle_Approach_Heard_World:
+
+        break
+
+        case ActionState.Alert_Approach_Heard_Combat:
+
+        break
+
+        case ActionState.Combat_Action:
+            
+            local aifollow = SpawnEntityFromTable("ai_relationship"
+            {
+                disposition = 1
+                spawnflags = 3
+                StartActive = 1 
+                subject = self.GetName()
+                target = "!player"
+                targetname = self.GetName() + "ai_relationship"
+            })
+            
+            /*
+            if(fst_combat)
+            {
+                EntFire("!self","UpdateEnemyMemory","!player",0,null,null) //sometimes even though alertlevel is equals 1, it doesn't always cause the NPC to react. This should fix it
+                fst_combat = false
+            }
+            */
         break
     }
 }
