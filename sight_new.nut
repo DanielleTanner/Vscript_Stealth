@@ -112,7 +112,7 @@ function NPC_TranslateActivity()
         newactivity = "ACT_WALK_AIM"
     }
     /// This code currently handles sound checking, as NPCs will run to check sounds
-    if(alertStage == AlertStage.Idle_Heard_World && activity == "ACT_RUN")
+    if((alertStage == AlertStage.Idle_Heard_World || alertStage == AlertStage.Idle_Heard_Player) && activity == "ACT_RUN")
     {
         newactivity = "ACT_WALK_AIM"
     }
@@ -151,6 +151,7 @@ function StealthKill()
     {
         DoEntFire("sprite_sight_" + self.GetName(), "Kill", "", 0, self, self)
         local mySquad = squadManager.FindCreateSquad(self.GetSquad().GetName()) 
+        DoEntFire(self.GetName() + "weaponcock", "Kill", "", 0, self, self)
         mySquad.RemoveFromSquad(self) // normally, if a squad member dies, other members become alerted. Removing them first resolves this
         DoEntFire("!self", "DropWeapon", "", 0, self, self) // without this, the weapon floats in midair
         DoEntFire("!self", "Kill", "", 0, self, self)
@@ -188,7 +189,7 @@ function Color_change(red, green)
         {
             DoEntFire("sprite_sight_" + self.GetName(), "Color", "0" + " " + "255" + " " + "0", 0, self, self)
         }
-        else if(alertlevel == 1)
+        else if(alertStage == AlertStage.Combat_Seen)
         {
             DoEntFire("sprite_sight_" + self.GetName(), "Color", "255" + " " + "0" + " " + "0", 0, self, self)
         }
@@ -262,6 +263,11 @@ function _UpdateSight(distance)
 
 function QuerySeeEntity()
 {
+    if(entity != player) // if you saw anything else besides the player, just behave as vanilla
+    {
+        return true
+    }
+
     if(self.GetNPCState() == NPC_STATE_COMBAT)
     {
         return true
@@ -329,6 +335,23 @@ function _UpdateSightAlertState(distance)
             }
         break
 
+        case AlertStage.Idle_Heard_Player:
+            _UpdateSight(distance)
+            if(alertlevel >= 1)
+            {
+                alertStage = AlertStage.Combat_Seen
+            }
+            else if(alertlevel < 0.5 && self.GetSchedule() != "SCHED_ALERT_FACE_BESTSOUND")
+            {
+                alertStage = AlertStage.Idle_Peaceful
+            }
+            else if(alertlevel >= 0.5)
+            {
+                fst_contact = true
+                alertStage = AlertStage.Idle_Seen
+            }
+        break
+
         /*
         case AlertStage.Alert_Heard_Combat:
             
@@ -369,8 +392,17 @@ function _UpdateSightAlertState(distance)
 
 function QueryHearSound()
 {
+    if(sound.SoundType() & (SOUND_BULLET_IMPACT))
+    {
+        return false
+    }
+
     if(sound.SoundType() & (SOUND_COMBAT))
     {
+        if(sound.Volume() == 1024) // don't do anything if you hear a fleshy body is attacked
+        {
+            return false
+        }
         alertStage = AlertStage.Combat_Seen
         /*
         repatrol = true
@@ -379,6 +411,13 @@ function QueryHearSound()
         _UpdateSchedule()
     
     }
+
+    if(sound.SoundType() & (SOUND_DANGER))
+    {
+        alertStage = AlertStage.Combat_Seen
+        _UpdateSchedule()
+    }
+
     if(sound.SoundType() & (SOUND_WORLD))
     {
         if(alertStage == AlertStage.Idle_Peaceful)
@@ -389,9 +428,16 @@ function QueryHearSound()
             _UpdateSchedule()
         }
     }
+
     if(sound.SoundType() & (SOUND_PLAYER))
     {
-        return false
+        if(alertStage == AlertStage.Idle_Peaceful || alertStage == AlertStage.Idle_Heard_World)
+        {
+            alertStage = AlertStage.Idle_Heard_Player
+            repatrol = true
+            self.SetSchedule("SCHED_ALERT_FACE_BESTSOUND")
+            _UpdateSchedule()
+        }
     }
 }
 
@@ -409,6 +455,10 @@ function _UpdateSchedule()
 
         case AlertStage.Idle_Heard_World:
         actionState = ActionState.Idle_Approach_Heard_World
+        break
+
+        case AlertStage.Idle_Heard_Player:
+        actionState = ActionState.Idle_Approach_Heard_Player
         break
 
         //case AlertStage.Alert_Heard_Combat:
@@ -581,6 +631,10 @@ function _UpdateAction()
         break
 
         case ActionState.Idle_Approach_Heard_World:
+
+        break
+
+        case ActionState.Idle_Approach_Heard_Player:
 
         break
 
