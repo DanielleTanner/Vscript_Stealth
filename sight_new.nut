@@ -6,6 +6,7 @@ enum AlertStage
     Idle_Heard_Player, // probably not gonna use this
     Alert_Heard_Combat,
     Alert_Seen,
+    Alert_Body,
     Combat_Seen
 }
 
@@ -17,6 +18,7 @@ enum ActionState
     Idle_Approach_Heard_Player, // probably not gonna use this
     Alert_Approach_Heard_Combat,
     Alert_Approach_Seen,
+    Alert_Approach_Body,
     Combat_Action
 }
 
@@ -91,8 +93,12 @@ local repatrol = false
 
 const maxCuriousCoolDown = 5
 local curiousCoolDown = 0
-const maxAlertCoolDown = 5
+const maxAlertCoolDown = 10
 local alertCoolDown = 0
+
+local bodyhunt = false
+
+local saw_body = false
 
 DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
 DoEntFire(self.GetName() + "weaponcock", "SetParent", self.GetName(), 0, null, null)
@@ -107,6 +113,7 @@ self.ConnectOutput("OnDamagedByPlayer", "StealthKill")
 function NPC_TranslateActivity()
 {
     local newactivity = -1
+
     if(activity == "ACT_RUN" && self.GetNPCState() == NPC_STATE_IDLE && alertStage == AlertStage.Idle_Seen)
     {
         newactivity = "ACT_WALK_AIM"
@@ -117,12 +124,12 @@ function NPC_TranslateActivity()
         newactivity = "ACT_WALK_AIM"
     }
 
-    else if(alertStage == AlertStage.Idle_Seen && activity == "ACT_WALK") 
+    else if((alertStage == AlertStage.Idle_Seen || alertStage == AlertStage.Alert_Body) && activity == "ACT_WALK") 
     {
         newactivity = "ACT_WALK_AIM"
     }
     
-    else if(alertStage == AlertStage.Idle_Seen && activity == "ACT_IDLE")
+    else if((alertStage == AlertStage.Idle_Seen || alertStage == AlertStage.Alert_Body) && activity == "ACT_IDLE")
     {
         newactivity = "ACT_IDLE_ANGRY"
     }
@@ -135,7 +142,6 @@ function NPC_TranslateActivity()
     */
     return newactivity
 }
-
 
 function OnDeath()
 {
@@ -215,6 +221,40 @@ function OnPostSpawn()
     printl(self.GetName() + " is now going to " + waypoints[0].GetName())
 }
 
+local deadbody_inv = null
+
+function BodyCheck()
+{
+    if(!bodyhunt)
+    {
+        for(local ragdoll; ragdoll = Entities.FindByClassname(ragdoll, "prop_ragdoll");)
+        {
+            local vecDelta = ragdoll.GetOrigin() - self.EyePosition()
+            vecDelta.z = 0
+            vecDelta.Norm()
+
+            local flDot = vecDelta.Dot(self.BodyDirection3D())
+
+            local trace = TraceLineComplex(self.EyePosition(), ragdoll.GetOrigin(), self, MASK_BLOCKLOS, COLLISION_GROUP_NONE)
+
+            local distance = (ragdoll.GetOrigin() - self.EyePosition()).Length()
+
+            if(flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxSightDist)
+            {
+                if(ragdoll.GetName() != "dead_body")
+                {
+                    deadbody_inv = ragdoll
+                    saw_body = true
+                    ragdoll.SetName("dead_body")
+                    printl("The ragdoll model is " + ragdoll.GetModelName())
+                    alertCoolDown = maxAlertCoolDown
+                    alertStage = AlertStage.Alert_Body
+                }
+            }
+        }
+    }
+}
+
 function Think() // handles rising sight meter
 {
     local vecDelta = player.GetOrigin() - self.EyePosition()
@@ -244,6 +284,7 @@ function Think() // handles rising sight meter
             playerInView = false
         }
     }
+    BodyCheck()
     _UpdateSightAlertState(distance)
 }
 
@@ -384,6 +425,18 @@ function _UpdateSightAlertState(distance)
             }
         break
 
+        case AlertStage.Alert_Body:
+            _UpdateSight(distance)
+            if(alertlevel >= 1)
+            {
+                alertStage = AlertStage.Combat_Seen
+            }
+            if(alertlevel < 0.5 && alertCoolDown <= 0)
+            {
+                alertStage = AlertStage.Idle_Peaceful
+            }
+        break
+
         case AlertStage.Combat_Seen:
         break
     }
@@ -404,12 +457,18 @@ function QueryHearSound()
             return false
         }
         alertStage = AlertStage.Combat_Seen
-        /*
-        repatrol = true
-        self.SetSchedule("SCHED_INVESTIGATE_SOUND")
-        */
+            /*
+            repatrol = true
+            self.SetSchedule("SCHED_INVESTIGATE_SOUND")
+            */
         _UpdateSchedule()
     
+    }
+
+    if(sound.SoundType() & (SOUND_THUMPER))
+    {
+        raiseFactor = 3000
+        bodyhunt = true
     }
 
     if(sound.SoundType() & (SOUND_DANGER))
@@ -467,6 +526,10 @@ function _UpdateSchedule()
 
         case AlertStage.Alert_Seen:
         actionState = ActionState.Alert_Approach_Seen
+        break
+
+        case AlertStage.Alert_Body:
+        actionState = ActionState.Alert_Approach_Body
         break
 
         case AlertStage.Combat_Seen:
@@ -640,6 +703,47 @@ function _UpdateAction()
 
         case ActionState.Alert_Approach_Heard_Combat:
 
+        break
+
+        case ActionState.Alert_Approach_Body:
+            printl("Found a body")
+            local aifollow = SpawnEntityFromTable("ai_goal_follow"
+            {
+                actor = self.GetName()
+                goal = self.GetName() + "playercornerpath"
+                Formation = 0
+                targetname = self.GetName() + "aifollow"
+                StartActive = 0
+            })
+
+            local bodypos = SpawnEntityFromTable("path_corner",
+            {
+                origin = self.GetOrigin()
+                targetname = self.GetName() + "playercornerpath"
+            })
+
+            if(saw_body) // fst_contact should be the setup
+            {
+                DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
+                bodypos.SetOrigin(deadbody_inv.GetOrigin())
+                self.ClearSchedule("SCHED_INVESTIGATE_SOUND")
+                alertCoolDown = maxAlertCoolDown
+                DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+                saw_body = false
+            }
+
+            if(self.GetActivity() == "ACT_IDLE") // if npc is currently not moving, implying it has reached its destination
+            {
+                alertCoolDown -= 7*FrameTime()
+            }
+
+            if(alertCoolDown <= 0)
+            {
+                repatrol = true
+                DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
+                DoEntFire(self.GetName() + "aifollow", "Kill", "",0,self,self)
+                DoEntFire(self.GetName() + "playercornerpath", "Kill", "",0,self,self)
+            }
         break
 
         case ActionState.Combat_Action:
