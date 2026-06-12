@@ -7,6 +7,8 @@ There is a crouch factor too, where if you are crouched, it takes longer for gua
 
 If they spot a dead comrade, they will run to the body and stay there for a while before resuming patrol. This obviously can be reworked more so that there is a harsher penalty besides this, but this is fine for the most part I feel. Because they can see dead bodies, you can now move dead bodies using the use key with a command that is included in the map file.
 
+If you attack them while they are idle, they will instantly die. This can be reworked further though I am not planning on anything yet.
+
 I also added a few working sound behaviors too. If you throw an object that has the physics_sound.nut script nearby a guard, the guard will go and investigate it. If you walk nearby them, they will turn around and face you. If you fire a gunshot however, they will immediately go into combat. I currently plan for more complex behavior however rather than just attack the player, but it doesn't break the illusion of stealth too much I feel.
 
 Combat sounds are currently difficult to implement together because the hearing range is surprisingly short, which can make guard behavior unpredictable.
