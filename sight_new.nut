@@ -6,6 +6,7 @@ enum AlertStage
     Idle_Heard_Player, // probably not gonna use this
     Alert_Heard_Combat,
     Alert_Seen,
+    Alert_Body,
     Combat_Seen
 }
 
@@ -17,6 +18,7 @@ enum ActionState
     Idle_Approach_Heard_Player, // probably not gonna use this
     Alert_Approach_Heard_Combat,
     Alert_Approach_Seen,
+    Alert_Approach_Body,
     Combat_Action
 }
 
@@ -26,12 +28,14 @@ enum PatrolVars
     Waiting
 }
 
+/*
 local debugtext = SpawnEntityFromTable("point_message",
 { 
     radius = 4096
     targetname = "debug_" + self.GetName()
     origin = self.EyePosition()
 })
+*/
 
 local sightsprite = SpawnEntityFromTable("env_sprite",
 {
@@ -60,11 +64,29 @@ local guncock = SpawnEntityFromTable("ambient_generic",
     health = 10
 })
 
+/*
 local glow = SpawnEntityFromTable("point_glow",
 {
     target = self.GetName()
     GlowColor = "115 247 255 255"
 })
+*/
+
+local aifollow = SpawnEntityFromTable("ai_goal_follow"
+{
+    actor = self.GetName()
+    goal = self.GetName() + "playercornerpath"
+    Formation = 0
+    targetname = self.GetName() + "aifollow"
+    StartActive = 0
+})
+
+local playerpos = SpawnEntityFromTable("path_corner",
+{
+    origin = self.GetOrigin()
+    targetname = self.GetName() + "playercornerpath"
+})
+
 
 const AI_SENSING_SAMPLE_CONE = 0.5 // 1 is basically blind, 0 is basically 180
 local playerInView = false
@@ -91,8 +113,12 @@ local repatrol = false
 
 const maxCuriousCoolDown = 5
 local curiousCoolDown = 0
-const maxAlertCoolDown = 5
+const maxAlertCoolDown = 10
 local alertCoolDown = 0
+
+local bodyhunt = false
+
+local saw_body = false
 
 DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
 DoEntFire(self.GetName() + "weaponcock", "SetParent", self.GetName(), 0, null, null)
@@ -107,6 +133,7 @@ self.ConnectOutput("OnDamagedByPlayer", "StealthKill")
 function NPC_TranslateActivity()
 {
     local newactivity = -1
+
     if(activity == "ACT_RUN" && self.GetNPCState() == NPC_STATE_IDLE && alertStage == AlertStage.Idle_Seen)
     {
         newactivity = "ACT_WALK_AIM"
@@ -117,12 +144,12 @@ function NPC_TranslateActivity()
         newactivity = "ACT_WALK_AIM"
     }
 
-    else if(alertStage == AlertStage.Idle_Seen && activity == "ACT_WALK") 
+    else if((alertStage == AlertStage.Idle_Seen || alertStage == AlertStage.Alert_Body) && activity == "ACT_WALK") 
     {
         newactivity = "ACT_WALK_AIM"
     }
     
-    else if(alertStage == AlertStage.Idle_Seen && activity == "ACT_IDLE")
+    else if((alertStage == AlertStage.Idle_Seen || alertStage == AlertStage.Alert_Body) && activity == "ACT_IDLE")
     {
         newactivity = "ACT_IDLE_ANGRY"
     }
@@ -135,7 +162,6 @@ function NPC_TranslateActivity()
     */
     return newactivity
 }
-
 
 function OnDeath()
 {
@@ -161,19 +187,19 @@ function StealthKill()
 
 function ColorLerpRaise()
 {
-    local _red = alertlevel*255
-    local _grn = alertlevel*255
-    red = clamp(_red.tointeger(), 0, 255) 
-    green = clamp(255 - _grn.tointeger(), 0, 255)
+    local _red = alertlevel*230
+    local _grn = alertlevel*230
+    red = clamp(_red.tointeger(), 0, 230) 
+    green = clamp(230 - _grn.tointeger(), 0, 230)
     Color_change(red, green)
 }
 
 function ColorLerpLower()
 {
-    local _red = alertlevel*255
-    local _grn = alertlevel*255
-    red = clamp(255 - _red.tointeger(), 0, 255)
-    green = clamp(_grn.tointeger(), 0, 255)
+    local _red = alertlevel*230
+    local _grn = alertlevel*230
+    red = clamp(230 - _red.tointeger(), 0, 230)
+    green = clamp(_grn.tointeger(), 0, 230)
     Color_change(red, green)
 }
 
@@ -181,17 +207,17 @@ function Color_change(red, green)
 {
     if(self.GetNPCState() == NPC_STATE_COMBAT)
     {
-        DoEntFire("sprite_sight_" + self.GetName(), "Color", "255" + " " + "0" + " " + "0", 0, self, self)
+        DoEntFire("sprite_sight_" + self.GetName(), "Color", "230" + " " + "0" + " " + "0", 0, self, self)
     }
     else
     {
         if(alertlevel == 0)
         {
-            DoEntFire("sprite_sight_" + self.GetName(), "Color", "0" + " " + "255" + " " + "0", 0, self, self)
+            DoEntFire("sprite_sight_" + self.GetName(), "Color", "0" + " " + "230" + " " + "0", 0, self, self)
         }
         else if(alertStage == AlertStage.Combat_Seen)
         {
-            DoEntFire("sprite_sight_" + self.GetName(), "Color", "255" + " " + "0" + " " + "0", 0, self, self)
+            DoEntFire("sprite_sight_" + self.GetName(), "Color", "230" + " " + "0" + " " + "0", 0, self, self)
         }
         else
         {
@@ -215,6 +241,40 @@ function OnPostSpawn()
     printl(self.GetName() + " is now going to " + waypoints[0].GetName())
 }
 
+local deadbody_inv = null
+
+function BodyCheck()
+{
+    if(!bodyhunt)
+    {
+        for(local ragdoll; ragdoll = Entities.FindByClassname(ragdoll, "prop_ragdoll");)
+        {
+            local vecDelta = ragdoll.GetOrigin() - self.EyePosition()
+            vecDelta.z = 0
+            vecDelta.Norm()
+
+            local flDot = vecDelta.Dot(self.BodyDirection3D())
+
+            local trace = TraceLineComplex(self.EyePosition(), ragdoll.GetOrigin(), self, MASK_BLOCKLOS, COLLISION_GROUP_NONE)
+
+            local distance = (ragdoll.GetOrigin() - self.EyePosition()).Length()
+
+            if(flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxSightDist)
+            {
+                if(ragdoll.GetName() != "dead_body")
+                {
+                    deadbody_inv = ragdoll
+                    saw_body = true
+                    ragdoll.SetName("dead_body")
+                    printl("The ragdoll model is " + ragdoll.GetModelName())
+                    alertCoolDown = maxAlertCoolDown
+                    alertStage = AlertStage.Alert_Body
+                }
+            }
+        }
+    }
+}
+
 function Think() // handles rising sight meter
 {
     local vecDelta = player.GetOrigin() - self.EyePosition()
@@ -229,7 +289,7 @@ function Think() // handles rising sight meter
     local distance = (player.EyePosition() - self.EyePosition()).Length()
 
     local dleft = (self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length()
-    DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "Alertcooldown: " + alertCoolDown, 0, null, null)
+    //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "Alertcooldown: " + alertCoolDown, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "WaitTime: " + waitTime + " & " + "Distance: " + dleft, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "CuriousCD: " + curiousCoolDown + " Schedule: " + self.GetSchedule() + " & " + "State: " + self.GetNPCState(), 0, null, null)
 
@@ -244,6 +304,7 @@ function Think() // handles rising sight meter
             playerInView = false
         }
     }
+    BodyCheck()
     _UpdateSightAlertState(distance)
 }
 
@@ -251,7 +312,13 @@ function _UpdateSight(distance)
 {
     if(playerInView)
     {
-        alertlevel = clamp(alertlevel + raiseFactor*(DetectionBuildRate)*FrameTime()/distance, 0, 1)
+        local duckingfactor = 1
+        if(player.GetFlags() & FL_DUCKING)
+        {
+            printl( "Player is crouching" )
+            duckingfactor = 0.5
+        }
+        alertlevel = clamp(alertlevel + raiseFactor*duckingfactor*(DetectionBuildRate)*FrameTime()/distance, 0, 1)
         ColorLerpRaise()
     }
     else
@@ -384,6 +451,18 @@ function _UpdateSightAlertState(distance)
             }
         break
 
+        case AlertStage.Alert_Body:
+            _UpdateSight(distance)
+            if(alertlevel >= 1)
+            {
+                alertStage = AlertStage.Combat_Seen
+            }
+            if(alertlevel < 0.5 && alertCoolDown <= 0)
+            {
+                alertStage = AlertStage.Idle_Peaceful
+            }
+        break
+
         case AlertStage.Combat_Seen:
         break
     }
@@ -404,12 +483,18 @@ function QueryHearSound()
             return false
         }
         alertStage = AlertStage.Combat_Seen
-        /*
-        repatrol = true
-        self.SetSchedule("SCHED_INVESTIGATE_SOUND")
-        */
+            /*
+            repatrol = true
+            self.SetSchedule("SCHED_INVESTIGATE_SOUND")
+            */
         _UpdateSchedule()
     
+    }
+
+    if(sound.SoundType() & (SOUND_THUMPER))
+    {
+        raiseFactor = 3000
+        bodyhunt = true
     }
 
     if(sound.SoundType() & (SOUND_DANGER))
@@ -431,7 +516,7 @@ function QueryHearSound()
 
     if(sound.SoundType() & (SOUND_PLAYER))
     {
-        if(alertStage == AlertStage.Idle_Peaceful || alertStage == AlertStage.Idle_Heard_World)
+        if(alertStage == AlertStage.Idle_Peaceful || alertStage == AlertStage.Idle_Heard_World || alertStage == AlertStage.Alert_Body)
         {
             alertStage = AlertStage.Idle_Heard_Player
             repatrol = true
@@ -467,6 +552,10 @@ function _UpdateSchedule()
 
         case AlertStage.Alert_Seen:
         actionState = ActionState.Alert_Approach_Seen
+        break
+
+        case AlertStage.Alert_Body:
+        actionState = ActionState.Alert_Approach_Body
         break
 
         case AlertStage.Combat_Seen:
@@ -510,21 +599,6 @@ function _UpdateAction()
         break
 
         case ActionState.Idle_Approach_Seen:
-            local aifollow = SpawnEntityFromTable("ai_goal_follow"
-            {
-                actor = self.GetName()
-                goal = self.GetName() + "playercornerpath"
-                Formation = 0
-                targetname = self.GetName() + "aifollow"
-                StartActive = 0
-            })
-
-            local playerpos = SpawnEntityFromTable("path_corner",
-            {
-                origin = self.GetOrigin()
-                targetname = self.GetName() + "playercornerpath"
-            })
-
             if(fst_contact) // fst_contact should be the setup
             {
                 DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
@@ -553,17 +627,7 @@ function _UpdateAction()
                     {
                         if(playerInView) // update player position and movement
                         {
-                            DoEntFire(self.GetName() + "aifollow", "Kill", "",0,self,self)
-                            local aifollow = SpawnEntityFromTable("ai_goal_follow"
-                            {
-                                actor = self.GetName()
-                                goal = self.GetName() + "playercornerpath"
-                                Formation = 0
-                                targetname = self.GetName() + "aifollow"
-                                StartActive = 0
-                            })
-                            DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
-                            //playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
+                            playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
                             curiousCoolDown = maxCuriousCoolDown
                         }
                         
@@ -576,8 +640,6 @@ function _UpdateAction()
                         {
                             repatrol = true
                             DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
-                            DoEntFire(self.GetName() + "aifollow", "Kill", "",0,self,self)
-                            DoEntFire(self.GetName() + "playercornerpath", "Kill", "",0,self,self)
                         }
                     }
                 }
@@ -585,6 +647,7 @@ function _UpdateAction()
         break
 
         case ActionState.Alert_Approach_Seen:
+            /*
             local aifollow = SpawnEntityFromTable("ai_goal_follow"
             {
                 actor = self.GetName()
@@ -628,6 +691,7 @@ function _UpdateAction()
                     DoEntFire(self.GetName() + "playercornerpath", "Kill", "",0,self,self)
                 }
             }
+            */
         break
 
         case ActionState.Idle_Approach_Heard_World:
@@ -642,25 +706,69 @@ function _UpdateAction()
 
         break
 
-        case ActionState.Combat_Action:
-            
-            local aifollow = SpawnEntityFromTable("ai_relationship"
+        case ActionState.Alert_Approach_Body:
+            if(saw_body) // fst_contact should be the setup
             {
-                disposition = 1
-                spawnflags = 3
-                StartActive = 1 
-                subject = self.GetName()
-                target = "!player"
-                targetname = self.GetName() + "ai_relationship"
-            })
-            
-            /*
-            if(fst_combat)
-            {
-                EntFire("!self","UpdateEnemyMemory","!player",0,null,null) //sometimes even though alertlevel is equals 1, it doesn't always cause the NPC to react. This should fix it
-                fst_combat = false
+                DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
+                playerpos.SetOrigin(deadbody_inv.GetOrigin())
+                self.ClearSchedule("SCHED_INVESTIGATE_SOUND")
+                alertCoolDown = maxAlertCoolDown
+                DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+                saw_body = false
             }
-            */
+
+            if(self.GetActivity() == "ACT_IDLE") // if npc is currently not moving, implying it has reached its destination
+            {
+                alertCoolDown -= 7*FrameTime()
+            }
+
+            if(alertCoolDown <= 0)
+            {
+                repatrol = true
+                DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
+            }
+            
+        break
+
+        case ActionState.Combat_Action:
+            EntFire("!self","UpdateEnemyMemory","!player",0,null,null)
         break
     }
 }
+
+/*
+local ai_rallypnt = SpawnEntityFromTable("assault_rallypoint"
+            {
+                targetname = self.GetName() + "rally"
+                assaultpoint = self.GetName() + "assault"
+                origin = deadbody_inv.GetOrigin()
+            })
+
+            local ai_assaultpnt = SpawnEntityFromTable("assault_assaultpoint"
+            {
+                targetname = self.GetName() + "assault"
+                origin = deadbody_inv.GetOrigin()
+            })
+
+            if(saw_body) // fst_contact should be the setup
+            {
+                DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
+                ai_assaultpnt.SetOrigin(deadbody_inv.GetOrigin())
+                self.ClearSchedule("SCHED_INVESTIGATE_SOUND")
+                alertCoolDown = maxAlertCoolDown
+                DoEntFire(self.GetName(), "Assault", "",0,self,self)
+                saw_body = false
+            }
+
+            if(self.GetActivity() == "ACT_IDLE") // if npc is currently not moving, implying it has reached its destination
+            {
+                alertCoolDown -= 7*FrameTime()
+            }
+
+            if(alertCoolDown <= 0)
+            {
+                repatrol = true
+                DoEntFire(self.GetName() + "rally", "Kill", "",0,self,self)
+                DoEntFire(self.GetName() + "assault", "Kill", "",0,self,self)
+            }
+*/
