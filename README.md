@@ -3,9 +3,19 @@ This is an unfinished Vscript that can be added to your Mapbase projects to give
 NPCs that run this script will patrol by themselves given a fixed set of waypoints (that the level designers place themselves), will investigate a player's last known position when the player is in their FOV for long enough, and resume patrol if they can't find the player afterwards. 
 If they continue to see you, they'll engage in combat, but I didn't account yet for what happens once you decide to hide while in combat.
 
-I am currently working on adding sound behaviors too. Currently, all the NPCs that use this script are deaf, unable to hear the player or combat sounds. There's also no stance factor, so their sight meter increases at the same rate whether you are crouching or standing.
+There is a crouch factor too, where if you are crouched, it takes longer for guards to see you.
 
-There are a lot of new entities created at runtime, and will immediately be visible when you load the map. If you plan to use this for your mod and don't want to touch Vscript, I would say be patient as I try to flesh out the system.
+If they spot a dead comrade, they will run to the body and stay there for a while before resuming patrol. This obviously can be reworked more so that there is a harsher penalty besides this, but this is fine for the most part I feel. Because they can see dead bodies, you can now move dead bodies using the use key with a command that is included in the map file.
+
+I also added a few working sound behaviors too. If you throw an object that has the physics_sound.nut script nearby a guard, the guard will go and investigate it. If you walk nearby them, they will turn around and face you. If you fire a gunshot however, they will immediately go into combat. I currently plan for more complex behavior however rather than just attack the player, but it doesn't break the illusion of stealth too much I feel.
+
+Combat sounds are currently difficult to implement together because the hearing range is surprisingly short, which can make guard behavior unpredictable.
+
+There are a lot of new entities created at runtime, though only one will be visible so far, the sprite sight. Unfortunately this one isn't too consistent as an indicator of when you are seen and what state the guard is in, but it works well for the most part. It can send some mixed signals, but for the most part doesn't change how the guard behaves nor how the player behaves if they see it. Two entities created for debugging are a glow entity and a message entity which you can uncomment out in the script.
+
+If you feel the sprite sight is intrusive, don't worry. I also included a gun cocking sound to indicate that a guard has noticed you and will investigate.
+
+If you plan to use this for your mod and don't want to touch Vscript, I would say be patient as I try to flesh out the system.
 
 The example map given shows how to make NPCs use this script. You need to ensure that it is of course using "sight_new.nut" in the "Entity Scripts" field, and "Think" in the "Script think function" field. You then have to give it a name. The waypoints that this NPC then traverses also needs to be named properly.
 
@@ -13,6 +23,6 @@ For example, if you name your NPC "gary", the waypoints must be named in ascendi
 
 The ascending waypoints should also follow a path, since the npc will always patrol in ascending order before looping back to the lowest number once it reaches the highest number. Yes, this means that NPCs patrol a looping pattern rather than a back and forth one (for the time being).
 
-The waypoints themselves use the path_corner entity. All you need to do is name them properly, you don't have to do anything else with the entity.
+The waypoints themselves use the path_corner entity. All you need to do is name them properly, and ensure to remove the connections between path_corners later. You don't have to do anything else with the entity.
 
 I'm not a programmer, so I am pretty sure this can be written better. But better it be bad and exists than it not existing at all.
