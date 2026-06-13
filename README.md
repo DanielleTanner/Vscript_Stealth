@@ -1,4 +1,4 @@
-This is an unfinished Vscript that can be added to your Mapbase projects to give your NPCs some stealth mechanics. The main purpose is mostly to give players a template for stealth or to teach newer devs who want to use Vscript to see how it can be used by an example.
+This is an unfinished but very workable Vscript that can be added to your Mapbase projects to give your NPCs some stealth mechanics. The main purpose is mostly to give players a template for stealth or to teach newer devs who want to use Vscript to see how it can be used by an example.
 
 NPCs that run this script will patrol by themselves given a fixed set of waypoints (that the level designers place themselves), will investigate a player's last known position when the player is in their FOV for long enough, and resume patrol if they can't find the player afterwards. 
 If they continue to see you, they'll engage in combat, but I didn't account yet for what happens once you decide to hide while in combat.
@@ -13,11 +13,13 @@ I also added a few working sound behaviors too. If you throw an object that has 
 
 Combat sounds are currently difficult to implement together because the hearing range is surprisingly short, which can make guard behavior unpredictable.
 
-There are a lot of new entities created at runtime, though only one will be visible so far, the sprite sight. Unfortunately this one isn't too consistent as an indicator of when you are seen and what state the guard is in, but it works well for the most part. It can send some mixed signals, but for the most part doesn't change how the guard behaves nor how the player behaves if they see it. Two entities created for debugging are a glow entity and a message entity which you can uncomment out in the script.
+There are a lot of new entities created at runtime, though only one will be visible so far, the sprite sight and I think it works well for the most part. Two entities created for debugging are a glow entity and a message entity which you can uncomment out in the script.
 
 If you feel the sprite sight is intrusive, don't worry. I also included a gun cocking sound to indicate that a guard has noticed you and will investigate.
 
-If you plan to use this for your mod and don't want to touch Vscript, I would say be patient as I try to flesh out the system.
+If you plan to use this for your mod and don't want to touch Vscript, be aware that it isn't super complex, so if you are looking for something very complex, I would say be patient as I try to flesh out the system.
+
+You want to grab sight_new.nut, physics_sound.nut and stealth_intro.bsp. You can ignore everything else. Make sure you put the .nut files in the scripts/vscripts folder of your mod.
 
 The example map given shows how to make NPCs use this script. You need to ensure that it is of course using "sight_new.nut" in the "Entity Scripts" field, and "Think" in the "Script think function" field. You then have to give it a name. The waypoints that this NPC then traverses also needs to be named properly.
 
