@@ -34,7 +34,7 @@ function VPhysicsCollision()
                 soundcontext = SOUND_CONTEXT_REACT_TO_SOURCE 
                 soundtype = SOUND_WORLD                    
                 targetname = "ai_sound_emitter"
-                volume = 1000
+                volume = 300
             })
             DoEntFire("ai_sound_emitter", "EmitAISound", "", 0, null, null)
             DoEntFire("ai_sound_emitter", "Kill", "", 1, null, null)

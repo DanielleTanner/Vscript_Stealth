@@ -67,8 +67,9 @@ local guncock = SpawnEntityFromTable("ambient_generic",
 /*
 local glow = SpawnEntityFromTable("point_glow",
 {
+    targetname = self.GetName() + "glow"
     target = self.GetName()
-    GlowColor = "115 247 255 255"
+    GlowColor = "0 255 0 255"
 })
 */
 
@@ -167,8 +168,8 @@ function OnDeath()
 {
     DoEntFire("sprite_sight_" + self.GetName(), "Kill", "", 0, self, self)
     DoEntFire(self.GetName() + "weaponcock", "Kill", "", 0, self, self)
-    DoEntFire("!self", "Kill", "", 0, self, self)
-    DoEntFire("!self", "CreateSeparateRagdoll", "", 0, self, self)
+    //DoEntFire("!self", "Kill", "", 0, self, self)
+    //DoEntFire("!self", "CreateSeparateRagdoll", "", 0, self, self)
 }
 
 function StealthKill()
@@ -185,21 +186,29 @@ function StealthKill()
     }
 }
 
-function ColorLerpRaise()
-{
-    local _red = alertlevel*230
-    local _grn = alertlevel*230
-    red = clamp(_red.tointeger(), 0, 230) 
-    green = clamp(230 - _grn.tointeger(), 0, 230)
-    Color_change(red, green)
-}
 
-function ColorLerpLower()
+function ColorLerp()
 {
-    local _red = alertlevel*230
-    local _grn = alertlevel*230
-    red = clamp(230 - _red.tointeger(), 0, 230)
-    green = clamp(_grn.tointeger(), 0, 230)
+    local _red = null
+    local _grn = null
+
+    if(alertlevel <= 0)
+    {
+        red = 0
+        green = 255
+    }
+    else if (alertlevel >= 1)
+    {
+        red = 255
+        green = 0
+    }
+    else
+    {
+        _red = alertlevel*255
+        _grn = alertlevel*255
+        red = clamp(_red.tointeger(), 0, 255) 
+        green = clamp(255 - _grn.tointeger(), 0, 255)
+    }
     Color_change(red, green)
 }
 
@@ -207,17 +216,17 @@ function Color_change(red, green)
 {
     if(self.GetNPCState() == NPC_STATE_COMBAT)
     {
-        DoEntFire("sprite_sight_" + self.GetName(), "Color", "230" + " " + "0" + " " + "0", 0, self, self)
+        DoEntFire("sprite_sight_" + self.GetName(), "Color", "255" + " " + "0" + " " + "0", 0, self, self)
     }
     else
     {
         if(alertlevel == 0)
         {
-            DoEntFire("sprite_sight_" + self.GetName(), "Color", "0" + " " + "230" + " " + "0", 0, self, self)
+            DoEntFire("sprite_sight_" + self.GetName(), "Color", "0" + " " + "255" + " " + "0", 0, self, self)
         }
         else if(alertStage == AlertStage.Combat_Seen)
         {
-            DoEntFire("sprite_sight_" + self.GetName(), "Color", "230" + " " + "0" + " " + "0", 0, self, self)
+            DoEntFire("sprite_sight_" + self.GetName(), "Color", "255" + " " + "0" + " " + "0", 0, self, self)
         }
         else
         {
@@ -225,6 +234,31 @@ function Color_change(red, green)
         }
     }   
 }
+
+/*
+function Color_change(red, green)
+{
+    if(self.GetNPCState() == NPC_STATE_COMBAT)
+    {
+        DoEntFire(self.GetName() + "glow", "SetGlowColor", "255" + " " + "0" + " " + "0", 0, self, self)
+    }
+    else
+    {
+        if(alertlevel == 0)
+        {
+            DoEntFire(self.GetName() + "glow", "SetGlowColor", "0" + " " + "255" + " " + "0", 0, self, self)
+        }
+        else if(alertStage == AlertStage.Combat_Seen)
+        {
+            DoEntFire(self.GetName() + "glow", "SetGlowColor", "255" + " " + "0" + " " + "0", 0, self, self)
+        }
+        else
+        {
+            DoEntFire(self.GetName() + "glow", "SetGlowColor", red + " " + green + " " + "0", 0, self, self)
+        }
+    }   
+}
+*/
 
 function OnPostSpawn()
 {
@@ -304,6 +338,7 @@ function Think() // handles rising sight meter
             playerInView = false
         }
     }
+    ColorLerp()
     BodyCheck()
     _UpdateSightAlertState(distance)
 }
@@ -319,12 +354,10 @@ function _UpdateSight(distance)
             duckingfactor = 0.5
         }
         alertlevel = clamp(alertlevel + raiseFactor*duckingfactor*(DetectionBuildRate)*FrameTime()/distance, 0, 1)
-        ColorLerpRaise()
     }
     else
     {
         alertlevel = clamp(alertlevel - lowerFactor*(DetectionBuildRate)*FrameTime(), 0, 1)
-        ColorLerpLower()
     }
 }
 
