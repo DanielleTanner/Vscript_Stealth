@@ -7,7 +7,9 @@ enum AlertStage
     Alert_Heard_Combat,
     Alert_Seen,
     Alert_Body,
-    Combat_Seen
+    Combat_Seen,
+    Caution_Investigate,
+    Follow_Called
 }
 
 enum ActionState
@@ -19,7 +21,9 @@ enum ActionState
     Alert_Approach_Heard_Combat,
     Alert_Approach_Seen,
     Alert_Approach_Body,
-    Combat_Action
+    Combat_Action,
+    Caution_Hunt,
+    Follow_Buddy
 }
 
 enum PatrolVars
@@ -28,14 +32,19 @@ enum PatrolVars
     Waiting
 }
 
-/*
 local debugtext = SpawnEntityFromTable("point_message",
 { 
     radius = 4096
     targetname = "debug_" + self.GetName()
     origin = self.EyePosition()
 })
-*/
+
+local debugtext_1 = SpawnEntityFromTable("point_message",
+{ 
+    radius = 4096
+    targetname = "debug1_" + self.GetName()
+    origin = self.EyePosition()
+})
 
 local sightsprite = SpawnEntityFromTable("env_sprite",
 {
@@ -64,14 +73,14 @@ local guncock = SpawnEntityFromTable("ambient_generic",
     health = 10
 })
 
-/*
+
 local glow = SpawnEntityFromTable("point_glow",
 {
     targetname = self.GetName() + "glow"
     target = self.GetName()
     GlowColor = "0 255 0 255"
 })
-*/
+
 
 local aifollow = SpawnEntityFromTable("ai_goal_follow"
 {
@@ -88,6 +97,11 @@ local playerpos = SpawnEntityFromTable("path_corner",
     targetname = self.GetName() + "playercornerpath"
 })
 
+if(self.ValidateScriptScope())
+{
+    self.GetScriptScope().timesawenemy <- 0 // timer which increases so long as it hasn't seen the enemy
+    self.GetScriptScope().cautionCoolDown <- 0
+}
 
 const AI_SENSING_SAMPLE_CONE = 0.5 // 1 is basically blind, 0 is basically 180
 local playerInView = false
@@ -111,17 +125,28 @@ local waypoints = []
 
 local fst_contact = false
 local repatrol = false
+local fst_player = false
+local fst_caut = false
 
 const maxCuriousCoolDown = 5
 local curiousCoolDown = 0
 const maxAlertCoolDown = 10
 local alertCoolDown = 0
+const maxCombatCoolDown = 10
+local combatCoolDown = 0
+local maxCautionCoolDown = 10
 
 local bodyhunt = false
 
 local saw_body = false
 
+local should_hunt = false
+local member_hunt = 0
+local no_one_saw10 = 0
+
 DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
+DoEntFire("debug1_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
+DoEntFire("debug1_" + self.GetName(), "SetParentAttachment", "lefthand", 0, null, null) 
 DoEntFire(self.GetName() + "weaponcock", "SetParent", self.GetName(), 0, null, null)
 DoEntFire(self.GetName() + "weaponcock", "SetParentAttachment", "eyes", 0, null, null)
 //spawns a sprite at the NPC's eyes. Research self.GetForwardVector to see how apply the position in respect to the NPC
@@ -168,6 +193,8 @@ function OnDeath()
 {
     DoEntFire("sprite_sight_" + self.GetName(), "Kill", "", 0, self, self)
     DoEntFire(self.GetName() + "weaponcock", "Kill", "", 0, self, self)
+    local mySquad = squadManager.FindCreateSquad(self.GetSquad().GetName()) 
+    mySquad.RemoveFromSquad(self)
     //DoEntFire("!self", "Kill", "", 0, self, self)
     //DoEntFire("!self", "CreateSeparateRagdoll", "", 0, self, self)
 }
@@ -266,16 +293,17 @@ function OnPostSpawn()
     //find all the waypoints associated with the npc
     for (local entity; entity = Entities.FindByName(entity, self.GetName() + "_wp*");)
     {
-        printl(entity)
+        //printl(entity)
         waypoints.append(entity)
     }
     //then immediately start patrolling
     patrolVar = PatrolVars.Walking
     EntFire("!self", "SetTarget", waypoints[0].GetName(), 0, self, self)
-    printl(self.GetName() + " is now going to " + waypoints[0].GetName())
+    //printl(self.GetName() + " is now going to " + waypoints[0].GetName())
 }
 
 local deadbody_inv = null
+const maxBodySightDist = 512
 
 function BodyCheck()
 {
@@ -283,24 +311,23 @@ function BodyCheck()
     {
         for(local ragdoll; ragdoll = Entities.FindByClassname(ragdoll, "prop_ragdoll");)
         {
-            local vecDelta = ragdoll.GetOrigin() - self.EyePosition()
-            vecDelta.z = 0
-            vecDelta.Norm()
-
-            local flDot = vecDelta.Dot(self.BodyDirection3D())
-
-            local trace = TraceLineComplex(self.EyePosition(), ragdoll.GetOrigin(), self, MASK_BLOCKLOS, COLLISION_GROUP_NONE)
-
-            local distance = (ragdoll.GetOrigin() - self.EyePosition()).Length()
-
-            if(flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxSightDist)
+            if(ragdoll.GetName() != "found_dead_body")
             {
-                if(ragdoll.GetName() != "dead_body")
+                local vecDelta = ragdoll.GetOrigin() - self.EyePosition()
+                vecDelta.z = 0
+                vecDelta.Norm()
+
+                local flDot = vecDelta.Dot(self.BodyDirection3D())
+
+                local trace = TraceLineComplex(self.EyePosition(), ragdoll.GetOrigin(), self, MASK_BLOCKLOS, COLLISION_GROUP_NONE)
+
+                local distance = (ragdoll.GetOrigin() - self.EyePosition()).Length()
+
+                if(flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxBodySightDist)
                 {
                     deadbody_inv = ragdoll
                     saw_body = true
-                    ragdoll.SetName("dead_body")
-                    printl("The ragdoll model is " + ragdoll.GetModelName())
+                    ragdoll.SetName("found_dead_body")
                     alertCoolDown = maxAlertCoolDown
                     alertStage = AlertStage.Alert_Body
                 }
@@ -323,21 +350,21 @@ function Think() // handles rising sight meter
     local distance = (player.EyePosition() - self.EyePosition()).Length()
 
     local dleft = (self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length()
-    //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "Alertcooldown: " + alertCoolDown, 0, null, null)
+    DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "cautioncooldown: " + self.GetScriptScope().cautionCoolDown, 0, null, null)
+    DoEntFire("debug1_" + self.GetName(), "SetMessage", "Schedule: " + self.GetSchedule() + " & " + "Combatcooldown: " + combatCoolDown, 0, null, null)
+    //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "alertlevel: " + alertlevel, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "WaitTime: " + waitTime + " & " + "Distance: " + dleft, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "CuriousCD: " + curiousCoolDown + " Schedule: " + self.GetSchedule() + " & " + "State: " + self.GetNPCState(), 0, null, null)
 
-    if(self.GetNPCState() == NPC_STATE_IDLE || self.GetNPCState() == NPC_STATE_ALERT) 
+    if (flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxSightDist)
     {
-        if (flDot > AI_SENSING_SAMPLE_CONE && !trace.DidHit() && distance < maxSightDist)
-        {
-            playerInView = true
-        }
-        else
-        {
-            playerInView = false
-        }
+        playerInView = true
     }
+    else
+    {
+        playerInView = false
+    }
+
     ColorLerp()
     BodyCheck()
     _UpdateSightAlertState(distance)
@@ -368,25 +395,18 @@ function QuerySeeEntity()
         return true
     }
 
-    if(self.GetNPCState() == NPC_STATE_COMBAT)
+    switch(alertStage)
     {
-        return true
+        case AlertStage.Idle_Peaceful:
+            return false
+        case AlertStage.Idle_Seen:
+            return false
+        case AlertStage.Alert_Seen:
+            return false
+        case AlertStage.Combat_Seen:
+            return true
     }
-
-    if(self.GetNPCState() == NPC_STATE_IDLE || self.GetNPCState() == NPC_STATE_ALERT)
-    {
-        switch(alertStage)
-        {
-            case AlertStage.Idle_Peaceful:
-                return false
-            case AlertStage.Idle_Seen:
-                return false
-            case AlertStage.Alert_Seen:
-                return false
-            case AlertStage.Combat_Seen:
-                return true
-        }
-    }
+    
 }
 
 function _UpdateSightAlertState(distance)
@@ -400,8 +420,9 @@ function _UpdateSightAlertState(distance)
                 fst_contact = true
                 alertStage = AlertStage.Idle_Seen
             }
-            else if (alertlevel >= 1)
+            else if (alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }  
         break
@@ -412,16 +433,18 @@ function _UpdateSightAlertState(distance)
             {
                 alertStage = AlertStage.Idle_Peaceful
             }
-            else if (alertlevel >= 1)
+            else if (alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }
         break
 
         case AlertStage.Idle_Heard_World:
             _UpdateSight(distance)
-            if(alertlevel >= 1)
+            if(alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }
             else if(alertlevel < 0.5 && self.GetSchedule() != "SCHED_INVESTIGATE_SOUND")
@@ -437,8 +460,9 @@ function _UpdateSightAlertState(distance)
 
         case AlertStage.Idle_Heard_Player:
             _UpdateSight(distance)
-            if(alertlevel >= 1)
+            if(alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }
             else if(alertlevel < 0.5 && self.GetSchedule() != "SCHED_ALERT_FACE_BESTSOUND")
@@ -474,8 +498,9 @@ function _UpdateSightAlertState(distance)
 
         case AlertStage.Alert_Seen:
             _UpdateSight(distance)
-            if (alertlevel >= 1)
+            if (alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }
             if(alertlevel < 0.5 && alertCoolDown <= 0)
@@ -486,8 +511,9 @@ function _UpdateSightAlertState(distance)
 
         case AlertStage.Alert_Body:
             _UpdateSight(distance)
-            if(alertlevel >= 1)
+            if(alertlevel >= 1 || self.GetNPCState() == NPC_STATE_COMBAT)
             {
+                fst_player = true
                 alertStage = AlertStage.Combat_Seen
             }
             if(alertlevel < 0.5 && alertCoolDown <= 0)
@@ -497,6 +523,24 @@ function _UpdateSightAlertState(distance)
         break
 
         case AlertStage.Combat_Seen:
+            _UpdateSight(distance)
+            if(combatCoolDown <= 0)
+            {
+                fst_caut = true
+                alertStage = AlertStage.Caution_Investigate
+            }
+        break
+        case AlertStage.Caution_Investigate:
+            _UpdateSight(distance)
+            if(alertlevel >= 0.5) // I removed the NPC_STATE_COMBAT condition, because I think this is forcing the NPC to go back to combat_see
+            {                     // A cleaner implementation might be necessary, like whether or not they or their squadmates saw the player.
+                fst_player = true
+                alertStage = AlertStage.Combat_Seen
+            }
+            if(self.GetScriptScope().cautionCoolDown <= 0)
+            {
+                alertStage = AlertStage.Idle_Peaceful
+            }
         break
     }
     _UpdateSchedule()
@@ -515,24 +559,31 @@ function QueryHearSound()
         {
             return false
         }
-        alertStage = AlertStage.Combat_Seen
-            /*
-            repatrol = true
-            self.SetSchedule("SCHED_INVESTIGATE_SOUND")
-            */
+        if(alertStage != AlertStage.Combat_Seen)
+        {
+            fst_player = true
+            alertStage = AlertStage.Combat_Seen // I am just going to make the assumption that if the 
+                                            // player is going to fire a loud weapon, they intend to be in combat
+        }
+        
         _UpdateSchedule()
-    
     }
 
+    /*
     if(sound.SoundType() & (SOUND_THUMPER))
     {
-        raiseFactor = 3000
-        bodyhunt = true
+        
     }
+    */
 
-    if(sound.SoundType() & (SOUND_DANGER))
-    {
-        alertStage = AlertStage.Combat_Seen
+    if(sound.SoundType() & (SOUND_DANGER)) 
+    {                          
+        if(alertStage != AlertStage.Combat_Seen)
+        {
+            fst_player = true
+            alertStage = AlertStage.Combat_Seen // I am just going to make the assumption that if the 
+                                            // player is going to fire a loud weapon, they intend to be in combat
+        }
         _UpdateSchedule()
     }
 
@@ -594,6 +645,9 @@ function _UpdateSchedule()
         case AlertStage.Combat_Seen:
         actionState = ActionState.Combat_Action
         break
+
+        case AlertStage.Caution_Investigate:
+        actionState = ActionState.Caution_Hunt
     }
     _UpdateAction()
 }
@@ -658,9 +712,9 @@ function _UpdateAction()
                     }
                     else
                     {
-                        if(playerInView) // update player position and movement
+                        if(playerInView) // update player position and movement if within LOS
                         {
-                            playerpos.SetOrigin(player.GetOrigin()) // hmm... this doesn't seem to work
+                            playerpos.SetOrigin(player.GetOrigin()) 
                             curiousCoolDown = maxCuriousCoolDown
                         }
                         
@@ -681,20 +735,6 @@ function _UpdateAction()
 
         case ActionState.Alert_Approach_Seen:
             /*
-            local aifollow = SpawnEntityFromTable("ai_goal_follow"
-            {
-                actor = self.GetName()
-                goal = self.GetName() + "playercornerpath"
-                Formation = 0
-                targetname = self.GetName() + "aifollow"
-                StartActive = 0
-            })
-
-            local playerpos = SpawnEntityFromTable("path_corner",
-            {
-                origin = self.GetOrigin()
-                targetname = self.GetName() + "playercornerpath"
-            })
 
             if(fst_contact) // fst_contact should be the setup
             {
@@ -764,7 +804,146 @@ function _UpdateAction()
         break
 
         case ActionState.Combat_Action:
-            EntFire("!self","UpdateEnemyMemory","!player",0,null,null)
+            local mySquad = self.GetSquad()
+            if(fst_player)
+            {
+                DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self) // if it happens to be following anything, deactivate
+                combatCoolDown = maxCombatCoolDown
+                EntFire("!self","UpdateEnemyMemory","!player",0,null,null)
+                fst_player = false
+            }
+
+            /*
+            if(playerInView || self.HasCondition("COND_HEAR_DANGER") == true || self.HasCondition("COND_HEAR_COMBAT") == true)
+            //got to make sure I can only start increasing if there is no other danger present
+            {
+                if(playerInView)
+                {
+                    playerpos.SetOrigin(player.GetOrigin()) // only change the position of the ai follower if you saw the player
+                }
+                self.GetScriptScope().timesawenemy = 0
+            }
+            */
+            if(playerInView)
+            {
+                playerpos.SetOrigin(player.GetOrigin()) // only change the position of the ai follower if you saw the player
+                self.GetScriptScope().timesawenemy = 0
+            }
+            else
+            {
+                self.GetScriptScope().timesawenemy += 10*FrameTime()
+                //this makes some sense, since timesawenemy can only reach a maximum of maxCombatCoolDown units of time, in which otherwise it would have moved on to the next state
+                //generally speaking, the soldier we want to investigate the player's position will be the one where timesawenemy - combatCoolDown = maxCombatCoolDown
+                //however it is possible for combatCoolDown to be maximum while timesawenemy has not reset to 0 for even the last soldier that saw it (the intended soldier to hunt)
+                //this is due to combatCoolDown being maxCombatCoolDown because it heard danger or combat or its squad members heard danger or combat even though it didn't see the player
+                //during the hunting stage therefore, no one will hunt, since all of their timesawenemy will be more than the maxCombatCoolDown
+                //this isn't really a bug but is worth addressing. I tried to add cond_hear_combat and danger but it doesn't seem to go down
+                //if all else fails and one really wants an investigation, it would simply be best to grab everyone's timesawenemy and do a quicksort then
+            }
+
+            local lostPlayer = 0
+            for(local member = 0; member < mySquad.NumMembers(true); member++)
+            {
+                //if any of my squadmates haven't seen the player (including myself)
+                //increase by 1
+                if(mySquad.GetMember(member).HasCondition("COND_SEE_ENEMY") == false && mySquad.GetMember(member).IsAlive())
+                {
+                    lostPlayer++
+                }
+                //otherwise if at least one of my teammates have seen them
+                //then make sure I am fully in combat
+                if(mySquad.GetMember(member).HasCondition("COND_SEE_ENEMY") == true || 
+                   mySquad.GetMember(member).HasCondition("COND_HEAR_DANGER") == true ||
+                   mySquad.GetMember(member).HasCondition("COND_HEAR_COMBAT") == true ||
+                   self.HasCondition("COND_HEAR_DANGER") == true ||
+                   self.HasCondition("COND_HEAR_COMBAT") == true)
+                {
+                    combatCoolDown = maxCombatCoolDown
+                    break
+                }
+            }
+            if(lostPlayer == mySquad.NumMembers(true)) //if none of my squadmates have seen the player, begin cooldown
+            {
+                if(combatCoolDown > 0)
+                {
+                    combatCoolDown = clamp(combatCoolDown - 10*FrameTime(), 0, maxCombatCoolDown)
+                }
+            }
+            if(combatCoolDown <= 0)
+            {
+                alertlevel = 0 // this seems like a really bad idea...
+                EntFire(self.GetName(), "ForgetEntity", "!player",0,null,null)
+                self.SetSchedule("SCHED_NONE")
+                self.GetScriptScope().cautionCoolDown = maxCautionCoolDown
+            }
+        break
+
+        case ActionState.Caution_Hunt:
+            local mySquad = self.GetSquad()
+            if(fst_caut)
+            {
+                no_one_saw10 = 0
+                fst_caut = false
+                self.ClearSchedule("SCHED_COMBINE_PATROL")
+                self.SetSchedule("SCHED_NONE")
+                for(local member = 0; member < mySquad.NumMembers(true); member++)
+                {
+                    if(mySquad.GetMember(member).ValidateScriptScope() && ("timesawenemy" in mySquad.GetMember(member).GetScriptScope()))
+                    {
+                        printl(mySquad.GetMember(member) + ": " + mySquad.GetMember(member).GetScriptScope().timesawenemy)
+                        if((mySquad.GetMember(member).GetScriptScope().timesawenemy-combatCoolDown).tointeger() == maxCombatCoolDown)
+                        {
+                            member_hunt = member // i need to tell the other squad members who is the one investigating
+                            if(self.GetName() == mySquad.GetMember(member).GetName())
+                            {
+                                should_hunt = true
+                                printl(self.GetName() + " shall hunt")
+                                DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+                            }
+                            else
+                            {
+                                should_hunt = false
+                            }
+                            break
+                        }
+                        else  // no one saw the player in the last 10 units of time 
+                        {
+                            no_one_saw10++
+                        }
+                    }
+                }
+            }
+
+            if(no_one_saw10 == mySquad.NumMembers(true)) // if no one saw the player the last 10 units of time
+            {                                            // I need to account for the fact that it is possible everyone that could have seen the 
+                                                         // player is dead and they haven't, but their cooldown still needs to happen.
+                self.GetScriptScope().cautionCoolDown -= 10*FrameTime()
+                if(self.GetScriptScope().cautionCoolDown <= 0)
+                {
+                    repatrol = true
+                }
+            }
+            else if(should_hunt)
+            {
+                if(!self.IsMoving() || self.GetSchedule() == "SCHED_FOLLOW")
+                {
+                    self.GetScriptScope().cautionCoolDown -= 10*FrameTime()
+                }
+                
+                if(self.GetScriptScope().cautionCoolDown <= 0)
+                {
+                    repatrol = true
+                    DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
+                }
+            }
+            else
+            {
+                if(mySquad.GetMember(member_hunt).GetScriptScope().cautionCoolDown <= 0)
+                {
+                    self.GetScriptScope().cautionCoolDown = 0
+                    repatrol = true
+                }
+            }
         break
     }
 }
