@@ -32,6 +32,8 @@ enum PatrolVars
     Waiting
 }
 
+//DEBUGGING
+/*
 local debugtext = SpawnEntityFromTable("point_message",
 { 
     radius = 4096
@@ -45,6 +47,7 @@ local debugtext_1 = SpawnEntityFromTable("point_message",
     targetname = "debug1_" + self.GetName()
     origin = self.EyePosition()
 })
+*/
 
 local sightsprite = SpawnEntityFromTable("env_sprite",
 {
@@ -73,14 +76,14 @@ local guncock = SpawnEntityFromTable("ambient_generic",
     health = 10
 })
 
-
+/*
 local glow = SpawnEntityFromTable("point_glow",
 {
     targetname = self.GetName() + "glow"
     target = self.GetName()
     GlowColor = "0 255 0 255"
 })
-
+*/
 
 local aifollow = SpawnEntityFromTable("ai_goal_follow"
 {
@@ -101,6 +104,8 @@ if(self.ValidateScriptScope())
 {
     self.GetScriptScope().timesawenemy <- 0 // timer which increases so long as it hasn't seen the enemy
     self.GetScriptScope().cautionCoolDown <- 0
+    self.GetScriptScope().foundbody <- false
+    //self.GetScriptScope().followbuddy <- null
 }
 
 const AI_SENSING_SAMPLE_CONE = 0.5 // 1 is basically blind, 0 is basically 180
@@ -144,9 +149,12 @@ local should_hunt = false
 local member_hunt = 0
 local no_one_saw10 = 0
 
+/* //DEBUGGING
 DoEntFire("debug_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
 DoEntFire("debug1_" + self.GetName(), "SetParent", self.GetName(), 0, null, null) 
-DoEntFire("debug1_" + self.GetName(), "SetParentAttachment", "lefthand", 0, null, null) 
+DoEntFire("debug1_" + self.GetName(), "SetParentAttachment", "lefthand", 0, null, null)
+*/
+
 DoEntFire(self.GetName() + "weaponcock", "SetParent", self.GetName(), 0, null, null)
 DoEntFire(self.GetName() + "weaponcock", "SetParentAttachment", "eyes", 0, null, null)
 //spawns a sprite at the NPC's eyes. Research self.GetForwardVector to see how apply the position in respect to the NPC
@@ -195,8 +203,8 @@ function OnDeath()
     DoEntFire(self.GetName() + "weaponcock", "Kill", "", 0, self, self)
     local mySquad = squadManager.FindCreateSquad(self.GetSquad().GetName()) 
     mySquad.RemoveFromSquad(self)
-    //DoEntFire("!self", "Kill", "", 0, self, self)
-    //DoEntFire("!self", "CreateSeparateRagdoll", "", 0, self, self)
+    DoEntFire("!self", "Kill", "", 0, self, self)
+    DoEntFire("!self", "CreateSeparateRagdoll", "", 0, self, self)
 }
 
 function StealthKill()
@@ -303,7 +311,7 @@ function OnPostSpawn()
 }
 
 local deadbody_inv = null
-const maxBodySightDist = 512
+local maxBodySightDist = 512
 
 function BodyCheck()
 {
@@ -329,6 +337,7 @@ function BodyCheck()
                     saw_body = true
                     ragdoll.SetName("found_dead_body")
                     alertCoolDown = maxAlertCoolDown
+                    self.GetScriptScope().foundbody = true // this is only set once. It will never be set to false if set to true
                     alertStage = AlertStage.Alert_Body
                 }
             }
@@ -350,8 +359,9 @@ function Think() // handles rising sight meter
     local distance = (player.EyePosition() - self.EyePosition()).Length()
 
     local dleft = (self.GetOrigin()-waypoints[currentWayPointIndex].GetOrigin()).Length()
-    DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "cautioncooldown: " + self.GetScriptScope().cautionCoolDown, 0, null, null)
-    DoEntFire("debug1_" + self.GetName(), "SetMessage", "Schedule: " + self.GetSchedule() + " & " + "Combatcooldown: " + combatCoolDown, 0, null, null)
+    //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "cautioncooldown: " + self.GetScriptScope().cautionCoolDown, 0, null, null)
+    //DoEntFire("debug1_" + self.GetName(), "SetMessage", "Schedule: " + self.GetSchedule() + " & " + "Combatcooldown: " + combatCoolDown, 0, null, null)
+
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "AlertStage: " + alertStage + " & " + "alertlevel: " + alertlevel, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "WaitTime: " + waitTime + " & " + "Distance: " + dleft, 0, null, null)
     //DoEntFire("debug_" + self.GetName(), "SetMessage", "CuriousCD: " + curiousCoolDown + " Schedule: " + self.GetSchedule() + " & " + "State: " + self.GetNPCState(), 0, null, null)
@@ -365,10 +375,30 @@ function Think() // handles rising sight meter
         playerInView = false
     }
 
+    if(self.GetScriptScope().foundbody)
+    {
+        raiseFactor = 1000
+        lowerFactor = 0.15
+        maxSightDist = 1280
+        maxBodySightDist = 768
+    }
+
     ColorLerp()
-    BodyCheck()
+    BodyCheck()      // I saw a body
+    //CalledToFollow() // My ally saw a body and they are calling me // this is hard to implement without a rework
     _UpdateSightAlertState(distance)
 }
+
+/*
+function CalledToFollow()
+{
+    if(self.GetScriptScope().followbuddy != null)
+    {
+        alertStage = AlertStage.Follow_Called
+        repatrol = true // remember to repatrol afterwards
+    }
+}
+*/
 
 function _UpdateSight(distance)
 {
@@ -648,6 +678,11 @@ function _UpdateSchedule()
 
         case AlertStage.Caution_Investigate:
         actionState = ActionState.Caution_Hunt
+        break
+
+        case AlertStage.Follow_Called:
+        actionState = ActionState.Follow_Buddy
+        break
     }
     _UpdateAction()
 }
@@ -780,6 +815,7 @@ function _UpdateAction()
         break
 
         case ActionState.Alert_Approach_Body:
+
             if(saw_body) // fst_contact should be the setup
             {
                 DoEntFire(self.GetName() + "weaponcock", "PlaySound", "",0,null,null)
@@ -788,6 +824,14 @@ function _UpdateAction()
                 alertCoolDown = maxAlertCoolDown
                 DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
                 saw_body = false
+
+                /*
+                buddy = Entities.FindByClassnameNearest(self.GetClassname(),self.GetOrigin(),1024)
+                if(buddy != null)
+                {
+                    buddy.GetScriptScope().followbuddy = self.GetName()
+                }
+                */
             }
 
             if(self.GetActivity() == "ACT_IDLE") // if npc is currently not moving, implying it has reached its destination
@@ -799,11 +843,19 @@ function _UpdateAction()
             {
                 repatrol = true
                 DoEntFire(self.GetName() + "aifollow", "Deactivate", "",0,self,self)
+
+                /*
+                if(buddy != null)
+                {
+                    buddy.GetScriptScope().followbuddy = null
+                }
+                */
             }
             
         break
 
         case ActionState.Combat_Action:
+            self.GetScriptScope().foundbody = true
             local mySquad = self.GetSquad()
             if(fst_player)
             {
@@ -908,6 +960,7 @@ function _UpdateAction()
                         }
                         else  // no one saw the player in the last 10 units of time 
                         {
+                            printl(self.GetName() + " did not see")
                             no_one_saw10++
                         }
                     }
@@ -925,7 +978,7 @@ function _UpdateAction()
             }
             else if(should_hunt)
             {
-                if(!self.IsMoving() || self.GetSchedule() == "SCHED_FOLLOW")
+                if(!self.IsMoving()) // || self.GetSchedule() == "SCHED_FOLLOW"
                 {
                     self.GetScriptScope().cautionCoolDown -= 10*FrameTime()
                 }
@@ -944,6 +997,12 @@ function _UpdateAction()
                     repatrol = true
                 }
             }
+        break
+        case ActionState.Follow_Buddy:
+        /*
+            aifollow.GetScriptScope().goal = self.GetScriptScope().followbuddy
+            DoEntFire(self.GetName() + "aifollow", "Activate", "",0,self,self)
+        */
         break
     }
 }
