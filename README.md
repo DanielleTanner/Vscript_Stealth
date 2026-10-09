@@ -9,7 +9,7 @@ If they spot a dead comrade, they will run to the body and stay there for a whil
 
 If you attack them while they are idle, they will instantly die. This can be reworked further though I am not planning on anything yet.
 
-I also added a few working sound behaviors too. If you throw an object that has the physics_sound.nut script nearby a guard, the guard will go and investigate it. If you walk nearby them, they will turn around and face you. If you fire a gunshot however, they will immediately go into combat. I currently plan for more complex behavior however rather than just attack the player, but it doesn't break the illusion of stealth too much I feel.
+I also added a few working sound behaviors too. If you throw an object near a guard, the guard will go and investigate it. If you walk nearby them, they will turn around and face you. If you fire a gunshot however, they will immediately go into combat. I currently plan for more complex behavior however rather than just attack the player, but it doesn't break the illusion of stealth too much I feel.
 
 Combat sounds are currently difficult to implement together because the hearing range is surprisingly short, which can make guard behavior unpredictable.
 
@@ -19,13 +19,13 @@ If you feel the sprite sight is intrusive, don't worry. I also included a gun co
 
 If you plan to use this for your mod and don't want to touch Vscript, be aware that it isn't super complex, so if you are looking for something very complex, I would say be patient as I try to flesh out the system.
 
-You want to grab sight_new.nut, physics_sound.nut and stealth_intro.bsp. You can ignore everything else. Make sure you put the .nut files in the scripts/vscripts folder of your mod.
+You want to grab sight_new.nut, physics_sound_agnostic.nut and stealth_demo_mappers.vmf and stealth_demo_mappers.bsp. You can ignore everything else. Make sure you put the .nut files in the scripts/vscripts folder of your mod.
 
-The example map given shows how to make NPCs use this script. You need to ensure that it is of course using "sight_new.nut" in the "Entity Scripts" field, and "Think" in the "Script think function" field. You then have to give it a name. The waypoints that this NPC then traverses also needs to be named properly.
+The example map given shows how to make NPCs use this script. You need to ensure that it is of course using "sight_new.nut" in the "Entity Scripts" field, and "Think" in the "Script think function" field. You then have to give the NPC a name. The waypoints that this NPC then traverses also needs to be named properly.
 
 For example, if you name your NPC "gary", the waypoints must be named in ascending numerical form with the suffix _wp*, where "*" is the number. So you have to name your waypoints gary_wp1, gary_wp2 and so on for as many waypoints you need (though I do recommend not using more than 10)
 
-The ascending waypoints should also follow a path, since the npc will always patrol in ascending order before looping back to the lowest number once it reaches the highest number. Yes, this means that NPCs patrol a looping pattern rather than a back and forth one (for the time being).
+The ascending waypoints should also follow a path, since the npc will always patrol in ascending order before looping back to the lowest number once it reaches the highest number. This means that NPCs patrol a looping pattern rather than a back and forth one (for the time being).
 
 The waypoints themselves use the path_corner entity. All you need to do is name them properly, and ensure to remove the connections between path_corners later. You don't have to do anything else with the entity.
 
