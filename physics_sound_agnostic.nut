@@ -2,50 +2,53 @@ local dropLocation = null
 local pickup = false
 local wasthrown = false
 
-ListenToGameEvent("player_use", function(ev)
+function Thinky()
 {
-    local heldobject = GetPlayerHeldEntity(player) // tag the object to be processed
-    if(heldobject != null)
+    ListenToGameEvent("player_use", function(ev)
     {
-        heldobject.AddOutput("OnPhysGunPickup", "physics_sound_logic_script", "CallScriptFunction", "BeingPickedUp", 0, 0)
-        heldobject.AddOutput("OnPhysGunDrop", "physics_sound_logic_script", "CallScriptFunction", "CoordinatesOnDrop", 0, 0)
-        local objectScope = heldobject.GetOrCreatePrivateScriptScope();
-        objectScope.VPhysicsCollision <- function()
+        local heldobject = GetPlayerHeldEntity(player) // tag the object to be processed
+        if(heldobject != null)
         {
-            if(!pickup && wasthrown)
+            heldobject.AddOutput("OnPhysGunPickup", "physics_sound_logic_script", "CallScriptFunction", "BeingPickedUp", 0, 0)
+            heldobject.AddOutput("OnPhysGunDrop", "physics_sound_logic_script", "CallScriptFunction", "CoordinatesOnDrop", 0, 0)
+            local objectScope = heldobject.GetOrCreatePrivateScriptScope();
+            objectScope.VPhysicsCollision <- function()
             {
-                if(entity.GetClassname() == "npc_combine_s")
+                if(!pickup && wasthrown)
                 {
-                    wasthrown = false
-                    printl("I hit a combine soldier")
-                }
-                else
-                {
-                    wasthrown = false
-                    //local collisionLocation = heldobject.GetOrigin()
-                    //local distance = (dropLocation-collisionLocation).Length()
-
-                    if(speed > 200)
+                    if(entity.GetClassname() == "npc_combine_s")
                     {
-                        local soundemitter = SpawnEntityFromTable("ai_sound",
+                        wasthrown = false
+                        printl("I hit a combine soldier")
+                    }
+                    else
+                    {
+                        wasthrown = false
+                        //local collisionLocation = heldobject.GetOrigin()
+                        //local distance = (dropLocation-collisionLocation).Length()
+
+                        if(speed > 200)
                         {
-                            origin = heldobject.GetOrigin()
-                            duration = 0.5
-                            soundcontext = SOUND_CONTEXT_REACT_TO_SOURCE 
-                            soundtype = SOUND_WORLD                    
-                            targetname = "ai_sound_emitter"
-                            volume = 300
-                        })
-                        printl("I am very loud right now")
-                        DoEntFire("ai_sound_emitter", "EmitAISound", "", 0, null, null)
-                        DoEntFire("ai_sound_emitter", "Kill", "", 1, null, null)
+                            local soundemitter = SpawnEntityFromTable("ai_sound",
+                            {
+                                origin = heldobject.GetOrigin()
+                                duration = 0.5
+                                soundcontext = SOUND_CONTEXT_REACT_TO_SOURCE 
+                                soundtype = SOUND_WORLD                    
+                                targetname = "ai_sound_emitter"
+                                volume = 300
+                            })
+                            printl("I am very loud right now")
+                            DoEntFire("ai_sound_emitter", "EmitAISound", "", 0, null, null)
+                            DoEntFire("ai_sound_emitter", "Kill", "", 1, null, null)
+                        }
                     }
                 }
             }
+            //printl("Player is holding " + heldobject)
         }
-        //printl("Player is holding " + heldobject)
-    }
-},"")
+    },"")
+}
 
 function BeingPickedUp()
 {
